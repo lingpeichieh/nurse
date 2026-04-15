@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>護理評估與生命徵象學習卡</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #FFFFFF; color: #1F1F1F; overflow-x: hidden; touch-action: manipulation; }
+        .card-container { perspective: 1000px; width: 100%; max-width: 450px; height: 320px; position: relative; }
+        .card-inner {
+            position: relative; width: 100%; height: 100%; text-align: center;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d; cursor: pointer;
+        }
+        .card-inner.is-flipped { transform: rotateY(180deg); }
+        .card-face {
+            position: absolute; width: 100%; height: 100%; backface-visibility: hidden;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 2rem; border-radius: 1.5rem; border: 1px solid #E5E7EB;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04);
+        }
+        .card-front { background-color: #F9FAFB; }
+        .card-back { background-color: #F0F7FF; transform: rotateY(180deg); color: #1A56DB; }
+        
+        .feedback-overlay {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 8rem; font-weight: bold; z-index: 50; pointer-events: none;
+            opacity: 0; transform: scale(0.5);
+        }
+        .animate-feedback { animation: feedbackPop 0.5s ease-out forwards; }
+        @keyframes feedbackPop {
+            0% { opacity: 0; transform: scale(0.4); }
+            30% { opacity: 0.9; transform: scale(1.1); }
+            100% { opacity: 0; transform: scale(1.3); }
+        }
+
+        .badge {
+            position: absolute; top: 1rem; right: 1rem; width: 28px; height: 28px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: bold; opacity: 0; transition: all 0.3s;
+        }
+        .badge.show { opacity: 1; }
+        .badge-correct { background-color: #DCFCE7; color: #16A34A; }
+        .badge-wrong { background-color: #FEE2E2; color: #DC2626; }
+        .badge-skipped { background-color: #F3F4F6; color: #6B7280; }
+
+        .btn-circle {
+            width: 64px; height: 64px; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; transition: all 0.2s;
+            border: 1px solid #E5E7EB; background: white;
+        }
+        .btn-circle:active { transform: scale(0.9); background: #F3F4F6; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between py-10 px-6">
+
+    <div class="w-full max-w-[450px] space-y-4">
+        <div class="flex justify-between items-end">
+            <div>
+                <span id="current-mode" class="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1">精進模式</span>
+                <span class="text-2xl font-bold tracking-tighter" id="counter">1 / --</span>
+            </div>
+            <div class="flex gap-1.5">
+                <div class="text-center px-2">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">學會</p>
+                    <p id="learned-stat" class="font-bold text-green-600">0</p>
+                </div>
+                <div class="text-center px-2 border-l">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">不熟</p>
+                    <p id="wrong-stat" class="font-bold text-red-600">0</p>
+                </div>
+                <div class="text-center px-2 border-l">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">跳過</p>
+                    <p id="skip-stat" class="font-bold text-gray-500">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div id="progress-fill" class="h-full bg-black transition-all duration-500" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="card-container">
+        <div id="feedback" class="feedback-overlay"></div>
+        <div id="card" class="card-inner">
+            <div class="card-face card-front">
+                <div id="badge-front" class="badge"></div>
+                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-6">護理評估題目</span>
+                <p id="question" class="text-lg font-medium leading-relaxed text-gray-800 px-4"></p>
+            </div>
+            <div class="card-face card-back">
+                <span class="text-[10px] font-black text-blue-300 uppercase tracking-widest mb-6">正確答案</span>
+                <p id="answer" class="text-xl font-bold px-4"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full max-w-[450px] flex flex-col items-center gap-8">
+        <div class="flex items-center gap-6">
+            <button id="mark-wrong" class="btn-circle shadow-sm">
+                <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <button id="mark-skip" class="flex flex-col items-center group">
+                <div class="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center bg-gray-50 group-active:scale-95 transition-all">
+                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
+                </div>
+                <span class="text-[9px] font-black text-gray-400 mt-2 tracking-tighter">SKIP</span>
+            </button>
+
+            <button id="mark-correct" class="btn-circle shadow-sm">
+                <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+            </button>
+        </div>
+        
+        <div class="flex gap-10 items-center text-[10px] font-black text-gray-300 uppercase tracking-widest">
+            <button id="prev" class="hover:text-black">PREV</button>
+            <button id="restart" class="hover:text-red-500 border-x px-6">RESET</button>
+            <button id="next" class="hover:text-black">NEXT</button>
+        </div>
+    </div>
+
+    <script>
+        const allData = [
+            ["根據「病人觀察」的定義，觀察者運用哪些感官進行系統性且有計畫的察看？", "視覺、聽覺、觸覺、嗅覺、味覺。"],
+            ["病人觀察的主要目的之一是收集資料以作為擬訂_____的依據。", "醫療計畫"],
+            ["藉由觀察病人與家屬間的互動，醫護人員可以了解病人的什麼狀況？", "支持系統。"],
+            ["觀察病人周圍環境是否存在危險因素，其主要目的是預防_____和意外傷害的發生。", "疾病"],
+            ["何種觀察類型是指觀察者在一旁暗中觀察，不參與互動過程？", "旁觀性觀察 (Spectator)。"],
+            ["「參與性觀察 (Participant)」的定義為何？", "觀察者參與被觀察者的活動並彼此互動，藉以了解其行為與反應。"],
+            ["人員對自己的觀察所做的思考、分析及自我反省，稱為_____。", "自省性觀察 (Introspectionist)"],
+            ["在物理檢查的觀察方法中，最基本且最重要的方法為何？", "視診 (Inspection)。"],
+            ["「觸診 (Palpation)」主要是運用身體的哪個部位來感覺體表狀況？", "手。"],
+            ["在身體評估中，叩診 (Percussion) 最常用於哪些部位或反射的評估？", "胸腹部及肱三頭肌反射。"],
+            ["「間接觀察法」的定義為何？", "不需接觸病人，透過醫囑、檢驗報告、會診結果或各項記錄獲得資料的方法。"],
+            ["病人觀察的範圍除了病人本身外，還包括周圍設備、環境以及_____。", "對病人有重要影響力的人"],
+            ["觀察病人時應具備的專業技能中，「科學的思考過程」有助於資料的_____。", "統整分析"],
+            ["生命徵象 (Vital signs) 包含哪四項主要指標？", "體溫 (T)、脈搏 (P)、呼吸 (R)、血壓 (BP)。"],
+            ["體溫可分為穩定不變的「核心溫度」以及隨環境改變的「_____」。", "體表溫度 (Surface temperature)"],
+            ["人體體溫調節的中樞位於大腦的哪個部位？", "下視丘 (Hypothalamus)。"],
+            ["當體溫升高時，下視丘前葉的散熱中樞會啟動反應。", "前"],
+            ["當體溫降低時，下視丘後葉的產熱中樞會啟動反應。", "後"],
+            ["在散熱反應中，皮膚血管會發生何種變化以增加散熱？", "擴張。"],
+            ["在產熱反應中，身體會釋放哪兩種荷爾蒙以增加產熱？", "腎上腺素及甲狀腺素。"],
+            ["嬰幼兒體溫易受外界影響的主要原因為何？", "體溫調節中樞尚未發育完全。"],
+            ["老年人體溫通常較低，原因包括新陳代謝率降低、活動量減少及_____變薄。", "皮下脂肪組織"],
+            ["人體核心溫度最高（約 38.8 °C）的部位是_____。", "肝臟"],
+            ["正常腋溫的範圍與平均值分別為何？", "範圍 36-37 °C；平均值 36.5 °C。"],
+            ["正常口溫與耳溫的範圍與平均值分別為何？", "範圍 36.5-37.5 °C；平均值 37 °C。"],
+            ["正常肛溫的範圍與平均值分別為何？", "範圍 37-38 °C；平均值 37.5 °C。"],
+            ["若以耳溫測量，體溫高於多少攝氏度即可稱為「發燒」？", "> 37.5 °C。"],
+            ["當核心溫度低於多少攝氏度時，定義為「體溫過低 (Hypothermia)」？", "< 35 °C。"],
+            ["體溫過低中，「重度 (Severe)」的溫度定義為何？", "< 30 °C。"],
+            ["目前臨床上最常用於測量體溫的方法為何？", "耳溫。"],
+            ["使用耳溫槍測量一歲以內嬰兒的體溫時，應如何拉動耳朵？", "往下往後拉。"],
+            ["使用耳溫槍測量一歲以上病人的體溫時，應如何拉動耳朵？", "往上往後拉。"],
+            ["何種物質過多會干擾耳溫槍的紅外線能量，進而影響測量結果？", "耳垢。"],
+            ["脈搏 (Pulse) 的產生是因為左心室將血液打入主動脈，增加了_____並使管壁產生波動。", "主動脈壓"],
+            ["成人的正常脈搏速率 (Pulse rate) 範圍為何？", "每分鐘 60-100 次。"],
+            ["心搏過速 (Tachycardia) 的定義為每分鐘脈搏速率超過多少次？", "> 100 BPM。"],
+            ["心搏過緩 (Bradycardia) 的定義為每分鐘脈搏速率低於多少次？", "< 60 BPM。"],
+            ["顱內壓上升 (IICP) 通常會導致脈搏速率發生何種變化？", "心搏過緩 (Bradycardia)。"],
+            ["脈搏強度註記中，\"1+\" 代表的意義為何？", "脈搏微弱，輕微的觸摸壓力可能導致脈搏消失。"],
+            ["正常的脈搏強度應易於觸摸，其註記符號為何？", "2+。"],
+            ["姿勢如何影響脈搏速率？請依速率由快至慢排序。", "站時 > 坐時 > 平躺。"],
+            ["當血壓下降時，脈搏通常會出現何種補償性變化？", "脈率增加。"],
+            ["心尖脈 (Apical pulse) 的測量位置，在成人位於左胸的哪個交會處？", "第 5 肋間與左鎖骨中線交會處。"],
+            ["測量頸動脈時，為何不可同時按壓兩側？", "避免供應頭部的血流受到阻礙。"],
+            ["位於腕關節外側（大拇指側）的脈搏測量部位稱為_____。", "橈動脈"],
+            ["常用於評估腳部循環、位於腳背大拇趾與第二趾之間的動脈稱為_____。", "足背動脈"],
+            ["服用毛地黃類藥物或患有心臟病的病人，應測量哪個部位的脈搏並測足 1 分鐘？", "心尖脈 (Apical pulse)。"],
+            ["頸動脈若仍有搏動，通常代表收縮壓至少達到多少 mmHg？", "60 mmHg。"],
+            ["測量脈搏時，應應用哪三根手指進行感測？", "食、中及無名指。"],
+            ["「內呼吸」是指氧氣與二氧化碳在_____與組織細胞間交換的過程。", "微血管"],
+            ["「外呼吸」是指氧氣與二氧化碳在_____與肺臟微血管間交換的過程。", "肺泡"],
+            ["人體的呼吸節律中樞位於腦幹的哪個部位？", "延腦。"],
+            ["呼吸調節中樞位於橋腦上方，其功能是抑制吸氣動作以促進_____。", "呼氣動作"],
+            ["測量呼吸時，為何應避免讓病人察覺？", "因為意識可以控制呼吸，察覺可能導致測量值不準確。"],
+            ["為避免哭鬧影響，測量嬰幼兒生命徵象時應先測量哪一項數值？", "呼吸值。"],
+            ["測量呼吸時，除了速率外，還需評估胸部起伏、呼吸音、節律以及_____等項目。", "膚色 (或呼吸輔助肌使用情形)。"],
+            ["血壓的測量單位通常標記為什麼？", "mmHg。"],
+            ["當心臟左心室收縮時，血液對動脈壁產生的最高壓力稱為_____。", "收縮壓 (Systolic pressure)"],
+            ["當心臟舒張時，血液溢出並對管壁產生的壓力稱為_____。", "舒張壓 (Diastolic pressure)"],
+            ["脈搏壓 (Pulse pressure) 的計算公式為何？", "收縮壓 - 舒張壓。"],
+            ["環境溫度過熱會刺激副交感神經使血管擴張，導致血壓出現何種變化？", "下降。"],
+            ["根據 2022 年成人高血壓分期，正常血壓的標準為何？", "收縮壓 < 120 且舒張壓 < 80 mmHg。"],
+            ["若收縮壓為 135 mmHg 且舒張壓為 85 mmHg，根據 2022 分期屬於哪一期？", "第一期高血壓。"],
+            ["第二期高血壓的定義為何？", "收縮壓 >= 140 或舒張壓 >= 90 mmHg。"],
+            ["測量血壓前，若病人剛從事體力活動，應讓其休息多久再測量？", "15-30 分鐘。"],
+            ["首次測量血壓應測量雙手，日後應以哪一側作為測量基準？", "血壓值較高的一側（通常為右手）。"],
+            ["正常情況下，右手臂的血壓值通常比左手臂高多少 mmHg？", "5-15 mmHg。"],
+            ["若壓脈帶 (Cuff) 綁得太窄，會導致測量結果出現何種誤差？", "數值錯誤偏高。"],
+            ["壓脈帶的寬度應比被測肢體的直徑寬多少比例？", "20%。"],
+            ["壓脈帶應綁在病人肘彎上方約多少距離處？", "1 吋 (約 2.5 公分)。"],
+            ["若需在同一部位反覆測量血壓，兩次測量間應至少間隔多久？", "1-2 分鐘。"],
+            ["對於心律不整的病人，應如何獲得較準確的血壓值？", "連續測量三次後取其平均值。"],
+            ["若病人有服用高血壓藥物，測量血壓的最佳時機為何？", "給藥前。"],
+            ["成人臂圍在 35-44 公分時，應選用的壓脈帶尺寸為何？", "大成人 (Large adult)。"],
+            ["何種物理檢查方法常用於評估肝臟等深部器官的狀況？", "觸診 (Palpation)。"],
+            ["測量體溫時，「視診」可以觀察到病人的哪些相關表徵？", "皮膚發紅、出汗或寒顫等。"],
+            ["脈搏特性中的「脈量 (Pulse volume)」與什麼生理因素有關？", "血管粗細、血量多寡及管壁彈性。"],
+            ["脈搏速率與年齡的關係通常呈現_____。", "反比"],
+            ["情緒壓力會誘發_____神經系統，使產熱增加導致體溫上升。", "交感"],
+            ["人體在 24 小時內的體溫規律中，最高點通常出現在什麼時段？", "下午 4-8 點 (4-8 PM)。"]
+        ];
+
+        let index = 0;
+        let stats = {}; 
+        let currentQueue = allData.map((d, i) => ({ q: d[0], a: d[1], origIdx: i }));
+
+        const card = document.getElementById('card');
+        const feedback = document.getElementById('feedback');
+        const badgeFront = document.getElementById('badge-front');
+
+        function updateDisplay() {
+            card.classList.remove('is-flipped');
+            setTimeout(() => {
+                const item = currentQueue[index];
+                document.getElementById('question').textContent = item.q;
+                document.getElementById('answer').textContent = item.a;
+                document.getElementById('counter').textContent = `${index + 1} / ${currentQueue.length}`;
+                document.getElementById('progress-fill').style.width = `${((index + 1) / currentQueue.length) * 100}%`;
+                
+                const vals = Object.values(stats);
+                document.getElementById('learned-stat').textContent = vals.filter(v => v === 'learned').length;
+                document.getElementById('wrong-stat').textContent = vals.filter(v => v === 'wrong').length;
+                document.getElementById('skip-stat').textContent = vals.filter(v => v === 'skipped').length;
+
+                const status = stats[item.origIdx];
+                badgeFront.className = 'badge';
+                if (status === 'learned') {
+                    badgeFront.classList.add('badge-correct', 'show');
+                    badgeFront.innerHTML = 'O';
+                } else if (status === 'wrong') {
+                    badgeFront.classList.add('badge-wrong', 'show');
+                    badgeFront.innerHTML = 'X';
+                } else if (status === 'skipped') {
+                    badgeFront.classList.add('badge-skipped', 'show');
+                    badgeFront.innerHTML = '→';
+                }
+            }, 150);
+        }
+
+        function triggerFeedback(type) {
+            let symbol = '';
+            let colorClass = '';
+            if (type === 'learned') { symbol = 'O'; colorClass = 'text-green-500'; }
+            else if (type === 'wrong') { symbol = 'X'; colorClass = 'text-red-500'; }
+            else { symbol = '→'; colorClass = 'text-gray-400'; }
+
+            feedback.textContent = symbol;
+            feedback.className = `feedback-overlay animate-feedback ${colorClass}`;
+            feedback.addEventListener('animationend', () => {
+                feedback.className = 'feedback-overlay';
+            }, { once: true });
+        }
+
+        function mark(type) {
+            const item = currentQueue[index];
+            stats[item.origIdx] = type;
+            triggerFeedback(type);
+            
+            setTimeout(() => {
+                if (index < currentQueue.length - 1) {
+                    index++;
+                    updateDisplay();
+                } else {
+                    finishSession();
+                }
+            }, 450);
+        }
+
+        function finishSession() {
+            const wrongIdxs = currentQueue.filter(d => stats[d.origIdx] === 'wrong').map(d => d.origIdx);
+            const skipIdxs = currentQueue.filter(d => stats[d.origIdx] === 'skipped').map(d => d.origIdx);
+            const needReview = [...new Set([...wrongIdxs, ...skipIdxs])];
+
+            if (needReview.length > 0) {
+                if (confirm(`本輪結束！\n不熟：${wrongIdxs.length} 題\n跳過：${skipIdxs.length} 題\n\n是否進入「複習模式」針對這些題目進行強化？`)) {
+                    currentQueue = needReview.map(i => ({ q: allData[i][0], a: allData[i][1], origIdx: i }));
+                    index = 0;
+                    document.getElementById('current-mode').textContent = "複習模式";
+                    document.getElementById('current-mode').classList.replace('text-blue-500', 'text-red-500');
+                    updateDisplay();
+                    return;
+                }
+            } else {
+                alert("恭喜！您已成功掌握本文件內的所有知識點！");
+            }
+            resetAll();
+        }
+
+        function resetAll() {
+            stats = {}; index = 0;
+            currentQueue = allData.map((d, i) => ({ q: d[0], a: d[1], origIdx: i }));
+            document.getElementById('current-mode').textContent = "精進模式";
+            document.getElementById('current-mode').classList.replace('text-red-500', 'text-blue-500');
+            updateDisplay();
+        }
+
+        card.onclick = () => card.classList.toggle('is-flipped');
+        document.getElementById('mark-correct').onclick = () => mark('learned');
+        document.getElementById('mark-wrong').onclick = () => mark('wrong');
+        document.getElementById('mark-skip').onclick = () => mark('skipped');
+        document.getElementById('next').onclick = () => { if (index < currentQueue.length - 1) { index++; updateDisplay(); } };
+        document.getElementById('prev').onclick = () => { if (index > 0) { index--; updateDisplay(); } };
+        document.getElementById('restart').onclick = () => { if(confirm("確定要重置進度並回到第一題嗎？")) resetAll(); };
+
+        updateDisplay();
+    </script>
+</body>
+</html>
